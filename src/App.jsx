@@ -3,17 +3,19 @@ import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
   signInAnonymously, 
-  onAuthStateChanged
+  signInWithCustomToken,
+  onAuthStateChanged 
 } from 'firebase/auth';
 import { 
   getFirestore, 
   collection, 
   addDoc, 
   onSnapshot, 
-  serverTimestamp,
-  doc,
-  updateDoc,
-  deleteDoc
+  serverTimestamp, 
+  doc, 
+  updateDoc, 
+  deleteDoc,
+  query
 } from 'firebase/firestore';
 import { 
   Calendar, 
@@ -24,42 +26,34 @@ import {
   ShieldCheck, 
   Menu, 
   X, 
-  ChevronRight,
-  Stethoscope,
-  Heart,
-  Mail,
-  CheckCircle,
-  Trash2,
-  Lock,
-  LogOut
+  ChevronRight, 
+  Stethoscope, 
+  Heart, 
+  Mail, 
+  CheckCircle, 
+  Trash2, 
+  Lock, 
+  LogOut 
 } from 'lucide-react';
 
-/* -------------------------------------------------------------------------- */
-/* CONFIGURAZIONE FIREBASE                                                     */
-/* -------------------------------------------------------------------------- */
-
-const firebaseConfig = {
-  apiKey: "AIzaSyCeMvmOBZOj6m1wp0GN_R62QFUi92pKcIQ", // Inserire qui la propria API Key di Firebase
-  authDomain: "studio-medico-ed82a.firebaseapp.com",
-  projectId: "studio-medico-ed82a",
-  storageBucket: "studio-medico-ed82a.firebasestorage.app",
-  messagingSenderId: "19317920922",
-  appId: "1:19317920922:web:3b9e3c866ab373423dfb23"
-};
-
-const finalConfig = (typeof __firebase_config !== 'undefined' && __firebase_config !== '{}')
+// --- CONFIGURAZIONE FIREBASE ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
   ? JSON.parse(__firebase_config) 
-  : firebaseConfig;
+  : {
+      apiKey: "", 
+      authDomain: "",
+      projectId: "",
+      storageBucket: "",
+      messagingSenderId: "",
+      appId: ""
+    };
 
-const finalAppId = typeof __app_id !== 'undefined' ? __app_id : 'studio-medico-enrico-di-paola';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'studio-medico-enrico-di-paola';
 
-const app = initializeApp(finalConfig);
+// Inizializzazione Firebase
+const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-
-/* -------------------------------------------------------------------------- */
-/* DATI DEL PROFESSIONISTA                                                    */
-/* -------------------------------------------------------------------------- */
 
 const DOCTOR_PROFILE = {
   name: "Dr. Enrico Di Paola",
@@ -78,10 +72,7 @@ const SERVICES = [
   { icon: Activity, title: "Piani di Prevenzione", desc: "Check-up periodici e programmi di screening personalizzati." }
 ];
 
-/* -------------------------------------------------------------------------- */
-/* COMPONENTI UI                                                              */
-/* -------------------------------------------------------------------------- */
-
+// --- COMPONENTI UI ---
 const Button = ({ children, onClick, variant = 'primary', className = '', type = 'button', disabled = false }) => {
   const baseStyle = "px-6 py-2 rounded-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2";
   const variants = {
@@ -113,10 +104,7 @@ const Input = ({ label, type = "text", value, onChange, placeholder, required = 
   </div>
 );
 
-/* -------------------------------------------------------------------------- */
-/* APP PRINCIPALE                                                             */
-/* -------------------------------------------------------------------------- */
-
+// --- COMPONENTE PRINCIPALE ---
 export default function App() {
   const [user, setUser] = useState(null);
   const [appointments, setAppointments] = useState([]);
@@ -131,35 +119,63 @@ export default function App() {
   const [adminPass, setAdminPass] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
 
+  // RULE 3: Auth Before Queries
   useEffect(() => {
     const initAuth = async () => {
       try {
-        await signInAnonymously(auth);
-      } catch (error) { console.error("Errore Auth:", error); }
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) { 
+        console.error("Errore Autenticazione:", error); 
+      }
     };
     initAuth();
-    return onAuthStateChanged(auth, setUser);
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
   }, []);
 
+  // Fetching data - Guarded by user auth (RULE 1 & 2)
   useEffect(() => {
     if (!user) return;
-    const q = collection(db, 'artifacts', finalAppId, 'public', 'data', 'appointments_enrico');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setAppointments(apps.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
-    }, (err) => console.error("Errore Firestore:", err));
+
+    // RULE 1: Strict Paths
+    const appointmentsRef = collection(db, 'artifacts', appId, 'public', 'data', 'appointments_enrico');
+    
+    // RULE 2: No Complex Queries (Simple fetch)
+    const unsubscribe = onSnapshot(appointmentsRef, 
+      (snapshot) => {
+        const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Sorting in memory to comply with RULE 2
+        const sortedApps = apps.sort((a, b) => {
+          const dateA = a.createdAt?.seconds || 0;
+          const dateB = b.createdAt?.seconds || 0;
+          return dateB - dateA;
+        });
+        setAppointments(sortedApps);
+      }, 
+      (err) => {
+        console.error("Errore Firestore:", err);
+      }
+    );
+
     return () => unsubscribe();
   }, [user]);
 
   const handleBooking = async (e) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user) return; // Guard
+    
     setSubmitStatus('loading');
     try {
-      await addDoc(collection(db, 'artifacts', finalAppId, 'public', 'data', 'appointments_enrico'), {
+      const appointmentsRef = collection(db, 'artifacts', appId, 'public', 'data', 'appointments_enrico');
+      await addDoc(appointmentsRef, {
         ...bookingData,
         status: 'pending',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        userId: user.uid // Track who created it
       });
       setSubmitStatus('success');
       setTimeout(() => { 
@@ -168,15 +184,19 @@ export default function App() {
         setBookingData({patientName:'', phone:'', email:'', date:'', time:'', notes:''}); 
       }, 3000);
     } catch (e) { 
-      console.error(e);
+      console.error("Errore durante la prenotazione:", e);
       setSubmitStatus('error'); 
     }
   };
 
   const handleAdminLogin = (e) => {
     e.preventDefault();
-    if (adminPass === 'admin123') { setIsAdmin(true); setView('admin'); }
-    else { alert("Password Errata"); }
+    if (adminPass === 'admin123') { 
+      setIsAdmin(true); 
+      setView('admin'); 
+    } else { 
+      alert("Password Errata"); 
+    }
   };
 
   const scrollToContact = () => {
@@ -189,6 +209,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      {/* Navigation */}
       <nav className="fixed w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
@@ -199,7 +220,7 @@ export default function App() {
             <div className="hidden md:flex items-center gap-8 font-medium">
               <button onClick={() => setView('home')} className="hover:text-teal-600 transition-colors">Home</button>
               <button onClick={() => setView('booking')} className="hover:text-teal-600 transition-colors">Prenota</button>
-              <button onClick={scrollToContact} className="px-4 py-2 bg-slate-100 rounded-full hover:bg-slate-200 transition-all">Contattami</button>
+              <button onClick={scrollToContact} className="px-4 py-2 bg-slate-100 rounded-full hover:bg-slate-200 transition-all">Contatti</button>
               {isAdmin ? (
                 <button onClick={() => setView('admin')} className="text-teal-600 flex items-center gap-1"><Lock size={18}/> Pannello</button>
               ) : (
@@ -213,12 +234,13 @@ export default function App() {
         </div>
       </nav>
 
+      {/* Mobile Menu */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-40 bg-white pt-20 px-6 md:hidden">
           <div className="flex flex-col gap-6 text-xl font-semibold text-center">
             <button onClick={() => {setView('home'); setMobileMenuOpen(false)}}>Home</button>
             <button onClick={() => {setView('booking'); setMobileMenuOpen(false)}}>Prenota Visita</button>
-            <button onClick={scrollToContact}>Contattami</button>
+            <button onClick={() => {scrollToContact(); setMobileMenuOpen(false)}}>Contatti</button>
           </div>
         </div>
       )}
@@ -226,18 +248,18 @@ export default function App() {
       <main className="pt-16">
         {view === 'home' && (
           <div className="animate-in fade-in duration-500">
-            <section className="py-20 px-6 max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center text-left">
-              <div>
+            <section className="py-20 px-6 max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center">
+              <div className="text-left">
                 <h1 className="text-5xl md:text-6xl font-extrabold text-slate-900 leading-tight mb-6">
                   La tua salute merita <span className="text-teal-600">attenzione</span> e professionalità.
                 </h1>
                 <p className="text-xl text-slate-600 mb-8">{DOCTOR_PROFILE.bio}</p>
                 <div className="flex flex-wrap gap-4">
                   <Button variant="primary" onClick={() => setView('booking')}>
-                    Prenota un Appuntamento <ChevronRight size={20}/>
+                    Prenota Visita <ChevronRight size={20}/>
                   </Button>
                   <Button variant="outline" onClick={scrollToContact}>
-                    Contattami Ora
+                    Contattami
                   </Button>
                 </div>
               </div>
@@ -248,7 +270,7 @@ export default function App() {
             </section>
 
             <section className="bg-white py-20 px-6">
-              <div className="max-w-7xl mx-auto text-center mb-16 text-left">
+              <div className="max-w-7xl mx-auto text-left mb-16">
                 <h2 className="text-3xl font-bold mb-4">Servizi dello Studio</h2>
                 <div className="w-20 h-1 bg-teal-600 rounded-full"></div>
               </div>
@@ -270,29 +292,34 @@ export default function App() {
         {view === 'booking' && (
           <section className="py-20 px-6 max-w-3xl mx-auto text-center">
             <h2 className="text-4xl font-bold mb-2">Prenota la tua Visita</h2>
-            <p className="text-slate-600 mb-10">Compila il modulo, verrai ricontattato telefonicamente per confermare data e orario.</p>
+            <p className="text-slate-600 mb-10">Compila il modulo per richiedere un appuntamento presso lo studio.</p>
             
             {submitStatus === 'success' ? (
               <div className="bg-green-50 border border-green-200 p-8 rounded-2xl flex flex-col items-center gap-4">
                 <CheckCircle className="text-green-500" size={64} />
                 <h3 className="text-2xl font-bold text-green-800">Richiesta Inviata!</h3>
-                <p className="text-green-700">Il Dr. Di Paola riceverà la tua richiesta e ti risponderà al più presto.</p>
+                <p className="text-green-700">Verrai ricontattato a breve per la conferma.</p>
               </div>
             ) : (
               <form onSubmit={handleBooking} className="bg-white p-8 rounded-2xl shadow-xl border border-slate-100 text-left">
                 <div className="grid md:grid-cols-2 gap-4">
-                  <Input label="Nome Completo" required value={bookingData.patientName} onChange={e => setBookingData({...bookingData, patientName: e.target.value})} placeholder="Es. Mario Rossi" />
-                  <Input label="Telefono" type="tel" required value={bookingData.phone} onChange={e => setBookingData({...bookingData, phone: e.target.value})} placeholder="+39 340..." />
+                  <Input label="Nome Completo" required value={bookingData.patientName} onChange={e => setBookingData({...bookingData, patientName: e.target.value})} placeholder="Mario Rossi" />
+                  <Input label="Telefono" type="tel" required value={bookingData.phone} onChange={e => setBookingData({...bookingData, phone: e.target.value})} placeholder="+39 ..." />
                 </div>
-                <Input label="Email" type="email" required value={bookingData.email} onChange={e => setBookingData({...bookingData, email: e.target.value})} placeholder="mario@esempio.it" />
+                <Input label="Email" type="email" required value={bookingData.email} onChange={e => setBookingData({...bookingData, email: e.target.value})} placeholder="email@esempio.it" />
                 <div className="grid md:grid-cols-2 gap-4">
                   <Input label="Data Preferita" type="date" required value={bookingData.date} onChange={e => setBookingData({...bookingData, date: e.target.value})} />
                   <Input label="Fascia Oraria" type="time" required value={bookingData.time} onChange={e => setBookingData({...bookingData, time: e.target.value})} />
                 </div>
-                <Input label="Motivo della Visita" rows={3} value={bookingData.notes} onChange={e => setBookingData({...bookingData, notes: e.target.value})} placeholder="Descrivi brevemente la tua necessità..." />
+                <Input label="Note aggiuntive" rows={3} value={bookingData.notes} onChange={e => setBookingData({...bookingData, notes: e.target.value})} placeholder="Dettagli opzionali..." />
                 <Button type="submit" className="w-full" disabled={submitStatus === 'loading'}>
-                  {submitStatus === 'loading' ? 'Invio in corso...' : 'Invia Richiesta'}
+                  {submitStatus === 'loading' ? 'Invio...' : 'Conferma Prenotazione'}
                 </Button>
+                {submitStatus === 'error' && (
+                  <p className="mt-4 text-red-500 text-sm text-center font-medium italic">
+                    Si è verificato un errore. Per favore, controlla la tua connessione o riprova più tardi.
+                  </p>
+                )}
               </form>
             )}
           </section>
@@ -302,11 +329,12 @@ export default function App() {
           <section className="py-40 px-6 max-w-md mx-auto text-center">
             <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-100">
               <Lock className="mx-auto mb-4 text-slate-400" size={48} />
-              <h2 className="text-2xl font-bold mb-6">Area Riservata Staff</h2>
+              <h2 className="text-2xl font-bold mb-6">Area Riservata</h2>
               <form onSubmit={handleAdminLogin}>
-                <Input label="Password di Accesso" type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)} placeholder="Inserisci password..." />
+                <Input label="Password di Accesso" type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)} placeholder="Password..." />
                 <Button type="submit" className="w-full">Accedi</Button>
               </form>
+              <p className="mt-4 text-xs text-slate-400">Usa 'admin123' per i test</p>
             </div>
           </section>
         )}
@@ -315,16 +343,20 @@ export default function App() {
           <section className="py-20 px-6 max-w-6xl mx-auto text-left">
             <div className="flex justify-between items-end mb-8">
               <div>
-                <h2 className="text-3xl font-bold">Gestione Appuntamenti</h2>
-                <p className="text-slate-600">Gestisci le richieste di prenotazione ricevute.</p>
+                <h2 className="text-3xl font-bold">Gestione Prenotazioni</h2>
+                <p className="text-slate-600">Visualizza e gestisci le richieste dei pazienti.</p>
               </div>
               <Button variant="outline" onClick={() => setIsAdmin(false)}>Esci <LogOut size={16}/></Button>
             </div>
             
             <div className="grid gap-4">
-              {appointments.length === 0 ? (
+              {!user ? (
+                <div className="bg-amber-50 p-6 rounded-xl border border-amber-200 text-amber-800 text-center font-medium">
+                  Connessione al database in corso...
+                </div>
+              ) : appointments.length === 0 ? (
                 <div className="bg-white p-12 text-center rounded-2xl border border-dashed border-slate-300 text-slate-400 font-medium">
-                  Nessuna richiesta presente al momento.
+                  Nessun appuntamento trovato.
                 </div>
               ) : (
                 appointments.map(app => (
@@ -337,24 +369,25 @@ export default function App() {
                         </span>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 text-sm text-slate-500">
-                        <span className="flex items-center gap-1 text-nowrap"><Phone size={14}/> {app.phone}</span>
-                        <span className="flex items-center gap-1 text-nowrap"><Mail size={14}/> {app.email}</span>
-                        <span className="flex items-center gap-1 text-nowrap"><Calendar size={14}/> {app.date}</span>
-                        <span className="flex items-center gap-1 text-nowrap"><Clock size={14}/> {app.time}</span>
+                        <span className="flex items-center gap-1"><Phone size={14}/> {app.phone}</span>
+                        <span className="flex items-center gap-1"><Mail size={14}/> {app.email}</span>
+                        <span className="flex items-center gap-1"><Calendar size={14}/> {app.date}</span>
+                        <span className="flex items-center gap-1"><Clock size={14}/> {app.time}</span>
                       </div>
-                      {app.notes && <p className="mt-3 text-sm italic bg-slate-50 p-2 rounded border-l-4 border-teal-500 text-slate-600">"{app.notes}"</p>}
                     </div>
                     <div className="flex items-center gap-2">
                       {app.status === 'pending' && (
                         <Button variant="primary" onClick={async () => {
-                          await updateDoc(doc(db, 'artifacts', finalAppId, 'public', 'data', 'appointments_enrico', app.id), { status: 'confirmed' });
+                          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appointments_enrico', app.id);
+                          await updateDoc(docRef, { status: 'confirmed' });
                         }}>Conferma</Button>
                       )}
                       <button onClick={async () => {
-                        if(window.confirm("Sei sicuro di voler eliminare questa richiesta?")) {
-                          await deleteDoc(doc(db, 'artifacts', finalAppId, 'public', 'data', 'appointments_enrico', app.id));
+                        if(window.confirm("Eliminare questa prenotazione?")) {
+                          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appointments_enrico', app.id);
+                          await deleteDoc(docRef);
                         }
-                      }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={20}/></button>
+                      }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={20}/></button>
                     </div>
                   </div>
                 ))
@@ -372,66 +405,33 @@ export default function App() {
               <span className="font-bold text-xl tracking-tight">{DOCTOR_PROFILE.name}</span>
             </div>
             <p className="text-slate-400 leading-relaxed">
-              Studio medico dedicato alla salute del paziente con un approccio moderno, professionale e basato sull'ascolto.
+              Studio medico dedicato alla salute e al benessere del paziente con un approccio moderno e professionale.
             </p>
           </div>
           <div>
-            <h4 className="text-lg font-bold mb-6">Recapiti Studio</h4>
+            <h4 className="text-lg font-bold mb-6">Contatti</h4>
             <div className="flex flex-col gap-4">
-              <a href={`tel:${DOCTOR_PROFILE.phone}`} className="flex items-center gap-3 text-slate-400 hover:text-teal-400 transition-colors">
-                <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center"><Phone size={18}/></div>
-                {DOCTOR_PROFILE.phone}
-              </a>
-              <a href={`mailto:${DOCTOR_PROFILE.email}`} className="flex items-center gap-3 text-slate-400 hover:text-teal-400 transition-colors">
-                <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center"><Mail size={18}/></div>
-                {DOCTOR_PROFILE.email}
-              </a>
               <div className="flex items-center gap-3 text-slate-400">
-                <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center"><MapPin size={18}/></div>
-                {DOCTOR_PROFILE.address}
+                <Phone size={18} className="text-teal-500"/> {DOCTOR_PROFILE.phone}
+              </div>
+              <div className="flex items-center gap-3 text-slate-400">
+                <Mail size={18} className="text-teal-500"/> {DOCTOR_PROFILE.email}
+              </div>
+              <div className="flex items-center gap-3 text-slate-400">
+                <MapPin size={18} className="text-teal-500"/> {DOCTOR_PROFILE.address}
               </div>
             </div>
           </div>
           <div>
-            <h4 className="text-lg font-bold mb-6">Contatto Diretto</h4>
-            <p className="text-slate-400 mb-6 text-sm italic">
-              Hai bisogno di assistenza o vuoi annullare una prenotazione? Chiama direttamente il nostro studio.
-            </p>
-            <Button variant="primary" className="w-full" onClick={() => window.location.href = `tel:${DOCTOR_PROFILE.phone}`}>
-              Chiama Ora
-            </Button>
+            <h4 className="text-lg font-bold mb-6">Orari</h4>
+            <p className="text-slate-400 text-sm mb-2">Lun - Ven: 09:00 - 18:00</p>
+            <p className="text-slate-400 text-sm">Sabato: 09:00 - 12:00 (Solo urgenze)</p>
           </div>
         </div>
         <div className="max-w-7xl mx-auto pt-8 border-t border-slate-800 text-center text-slate-500 text-sm">
-          © {new Date().getFullYear()} {DOCTOR_PROFILE.name}. Tutti i diritti riservati.
+          © {new Date().getFullYear()} {DOCTOR_PROFILE.name}.
         </div>
       </footer>
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
