@@ -2,15 +2,17 @@
 <html lang="it">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/studio-medico/vite.svg" />
+    <!-- Usiamo percorsi relativi senza lo slash iniziale / -->
+    <link rel="icon" type="image/svg+xml" href="vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dr. Enrico Di Paola - Studio Medico</title>
-    <!-- Tailwind via CDN per sicurezza assoluta se i file locali falliscono -->
+    <!-- Tailwind via CDN per garantire lo stile anche in caso di errori build -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module" crossorigin src="/studio-medico/assets/index-DADUcS9E.js"></script>
     <link rel="stylesheet" crossorigin href="/studio-medico/assets/index-C6G_3qQV.css">
   </head>
   <body>
     <div id="root"></div>
+    <!-- Puntiamo al file principale usando un percorso relativo -->
   </body>
 </html>
